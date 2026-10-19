@@ -1,0 +1,75 @@
+﻿{
+  "project": {
+    "project_id": 1,
+    "project_name": "Task Manager Demo",
+    "description": "Synthetic project for testing DevTrace provenance."
+  },
+  "members": [
+    {
+      "user_id": 1,
+      "name": "Demo Developer",
+      "email": "demo@example.com",
+      "role": "developer"
+    }
+  ],
+  "interactions": [
+    {
+      "interaction_id": 1,
+      "project_id": 1,
+      "user_id": 1,
+      "tool_name": "Synthetic AI Assistant",
+      "model_name": "demo-model",
+      "prompt": "Suggest a way to validate task titles.",
+      "response": "Reject titles that are empty or contain only whitespace."
+    }
+  ],
+  "decisions": [
+    {
+      "decision_id": 1,
+      "project_id": 1,
+      "interaction_id": 1,
+      "title": "Validate task titles",
+      "description": "Task titles must not be empty or whitespace-only.",
+      "status": "active",
+      "reason_text": "The synthetic AI response explicitly recommends this validation.",
+      "reason_source_type": "EXPLICIT"
+    }
+  ],
+  "alternatives": [
+    {
+      "alternative_id": 1,
+      "decision_id": 1,
+      "description": "Allow empty titles and validate later.",
+      "selection_status": "rejected"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": 1,
+      "decision_id": 1,
+      "evidence_type": "ai_interaction",
+      "source_reference": "interaction:1"
+    }
+  ],
+  "commits": [
+    {
+      "commit_id": 1,
+      "project_id": 1,
+      "user_id": 1,
+      "commit_hash": "synthetic0001",
+      "message": "Add task title validation"
+    }
+  ],
+  "code_changes": [
+    {
+      "change_id": 1,
+      "commit_id": 1,
+      "interaction_id": 1,
+      "decision_id": 1,
+      "file_path": "app/services/tasks.py",
+      "change_type": "modified",
+      "origin": "ai_inferred",
+      "confidence": 0.75
+    }
+  ]
+}
