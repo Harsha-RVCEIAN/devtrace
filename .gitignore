@@ -1,4 +1,3 @@
-@"
 .venv/
 .env
 .env.*
@@ -6,4 +5,3 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-"@ | Set-Content .gitignore
