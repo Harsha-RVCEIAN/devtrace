@@ -19,6 +19,7 @@ Responsibilities:
     - Enforce valid values and referential integrity.
 """
 
+from sqlalchemy import Index, desc, text
 import uuid
 from datetime import datetime
 
@@ -132,6 +133,9 @@ class Decision(Base):
             "(reason_confidence >= 0 AND reason_confidence <= 1)",
             name="ck_decision_reason_confidence",
         ),
+        UniqueConstraint("project_id", "decision_id",
+            name="uq_decision_project_decision"
+        ),
     )
 
     decision_id: Mapped[uuid.UUID] = mapped_column(
@@ -202,6 +206,10 @@ class GitCommit(Base):
             ondelete="RESTRICT",
         ),
         UniqueConstraint("project_id", "commit_hash"),
+        UniqueConstraint(
+            "project_id", "commit_id",
+            name="uq_git_commit_project_commit",
+        ),
     )
 
     commit_id: Mapped[uuid.UUID] = mapped_column(
@@ -219,6 +227,24 @@ class GitCommit(Base):
 class CodeChange(Base):
     __tablename__ = "code_change"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "commit_id"],
+            ["git_commit.project_id", "git_commit.commit_id"],
+            name="fk_code_change_project_commit",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "interaction_id"],
+            ["ai_interaction.project_id", "ai_interaction.interaction_id"],
+            name="fk_code_change_project_interaction",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "decision_id"],
+            ["decision.project_id", "decision.decision_id"],
+            name="fk_code_change_project_decision",
+            ondelete="RESTRICT",
+        ),
         CheckConstraint(
             "origin IN ('ai_exact', 'ai_inferred', 'human')",
             name="ck_code_change_origin",
@@ -243,20 +269,31 @@ class CodeChange(Base):
             "line_end IS NULL OR line_end >= 1",
             name="ck_code_change_line_end",
         ),
+        Index(
+            "idx_code_change_decision_id",
+            "decision_id",
+        ),
+        Index(
+            "idx_code_change_missing_provenance",
+            "project_id",
+            desc("changed_at"),
+            postgresql_where=text(
+                "interaction_id IS NULL AND decision_id IS NULL"
+            ),
+        ),
     )
 
     change_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
     )
-    commit_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("git_commit.commit_id", ondelete="RESTRICT")
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("project.project_id", ondelete="RESTRICT"),
+        nullable=False,
     )
-    interaction_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("ai_interaction.interaction_id", ondelete="RESTRICT")
-    )
-    decision_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("decision.decision_id", ondelete="RESTRICT")
-    )
+    commit_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    interaction_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    decision_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     change_type: Mapped[str] = mapped_column(String(30), nullable=False)
     origin: Mapped[str] = mapped_column(String(20), nullable=False)
