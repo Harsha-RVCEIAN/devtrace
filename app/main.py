@@ -27,6 +27,7 @@ from app.core.config import settings
 # response schemas, and HTTP error handling.
 from app.api.routes import (
     alternatives,
+    commits,
     decisions,
     evidence,
     interactions,
@@ -114,7 +115,7 @@ app.include_router(interactions.router)
 app.include_router(decisions.router)
 app.include_router(alternatives.router)
 app.include_router(evidence.router)
-
+app.include_router(commits.router)
 
 # ---------------------------------------------------------------------------
 # Health-check endpoint

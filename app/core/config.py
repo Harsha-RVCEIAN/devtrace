@@ -24,7 +24,7 @@ from pathlib import Path
 # Field defines validation rules, defaults, and environment-variable aliases.
 # SecretStr protects sensitive values, such as passwords, from being exposed
 # accidentally when the value is displayed or logged.
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 
 # BaseSettings loads and validates configuration from environment variables
 # and .env files. SettingsConfigDict specifies how that loading is performed.
@@ -75,6 +75,16 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="DEBUG",
     )
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def parse_debug_safely(cls, value: object) -> bool:
+        """Parse debug flag safely even when OS env defines DEBUG as a string like 'WARN'."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("true", "1", "yes", "on", "t")
+        return bool(value)
 
     # Database server hostname. "localhost" is suitable when PostgreSQL
     # is exposed on the same machine as the backend.
