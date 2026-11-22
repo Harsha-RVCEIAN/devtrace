@@ -16,6 +16,7 @@ connectivity. Database connectivity is managed separately by the database layer.
 """
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import _IncludedRouter
 from starlette.routing import BaseRoute
 
@@ -92,6 +93,15 @@ app = DevTraceFastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 
 # ---------------------------------------------------------------------------

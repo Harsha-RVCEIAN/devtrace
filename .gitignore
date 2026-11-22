@@ -7,3 +7,6 @@ __pycache__/
 .pytest_cache/
 Lab_Manual
 docs/
+frontend/node_modules/
+frontend/dist/
+
