@@ -6,7 +6,7 @@ Purpose:
     from AI conversations and development transcripts.
 
 Classification Rules:
-    - EXPLICIT: Direct causal statements ('we chose X because Y', 'the reason is...').
+    - EXPLICIT: Direct causal statements ('we chose X because Y', 'let's use X since Y', 'the reason is...').
     - INFERRED: Implied or suggested recommendations ('it might be better to...', 'suggests using...').
     - UNKNOWN: No clear rationale found. Never fabricates missing reasoning.
 """
@@ -29,17 +29,21 @@ class RationaleExtractionResult:
 
 # Explicit patterns indicating direct human/AI causal rationale
 EXPLICIT_PATTERNS = [
-    re.compile(r"(?:we chose|we decided on|selected)\s+(.*?)\s+(?:because|due to|since)\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:the reason is|rationale is|justification:?)\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:in order to|to achieve)\s+(.*?),\s+(?:we (?:use|chose|decided|selected))\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:decided to|opted to)\s+(.*?)\s+(?:because|so that|as)\s+(.*?)(?:\.|$)", re.IGNORECASE),
+    re.compile(
+        r"(?:let's use|lets use|we'll use|we will use|we chose|we selected|we decided on|decided to|opted for|opted to|selected|use|going with)\s+"
+        r"(.*?)\s+(?:because|due to|since|so that|as|in order to|to achieve)\s+(.*?)(?:\.|\n|$)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?:the reason is|rationale is|justification:?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:in order to|to achieve)\s+(.*?),\s+(?:we (?:use|chose|decided|selected|will use))\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:since|because)\s+(?:it's|it is|we need|they are|this allows|this provides)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
 ]
 
 # Inferred patterns indicating probabilistic or suggestive reasoning
 INFERRED_PATTERNS = [
-    re.compile(r"(?:it might be better to|would be preferable to|recommend(?:ed)?)\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:suggests using|advisable to|good practice to)\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:presumably|likely|appears best to)\s+(.*?)(?:\.|$)", re.IGNORECASE),
+    re.compile(r"(?:it might be better to|would be preferable to|recommend(?:ed)?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:suggests using|advisable to|good practice to)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:presumably|likely|appears best to)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
 ]
 
 
@@ -66,7 +70,6 @@ def extract_rationale(text: str) -> RationaleExtractionResult:
     for pattern in EXPLICIT_PATTERNS:
         match = pattern.search(clean_text)
         if match:
-            # Extract the matching sentence or matched clause
             extracted_reason = match.group(0).strip()
             return RationaleExtractionResult(
                 reason_text=extracted_reason,

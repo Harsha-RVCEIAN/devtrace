@@ -37,16 +37,20 @@ class CandidateDecision:
 
 # Decision trigger keywords indicating architectural/engineering choices
 DECISION_TRIGGERS = [
-    re.compile(r"(?:we (?:decided|chose|selected|will use|should use))\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:recommend(?:ed)? (?:using|approach is|to))\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:the decision is to|architecture choice:?)\s+(.*?)(?:\.|$)", re.IGNORECASE),
-    re.compile(r"(?:better to use|opted for)\s+(.*?)(?:\.|$)", re.IGNORECASE),
+    re.compile(r"(?:let's use|lets use|we'll use|we will use|we'll go with|let's go with|going with)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:we (?:decided|chose|selected|will use|should use)(?:\s+on|\s+to)?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:recommend(?:ed)? (?:using|approach is|to))\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:the decision is to|architecture choice:?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+    re.compile(r"(?:better to use|opted for|opt for)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
 ]
 
 # Type classification heuristics
 TYPE_KEYWORDS = {
-    "security": ["auth", "token", "jwt", "encrypt", "password", "hash", "rbac", "permission", "cors"],
-    "architecture": ["database", "postgresql", "schema", "microservice", "monolith", "kafka", "redis", "orm", "composite"],
+    "security": ["auth", "token", "jwt", "encrypt", "password", "hash", "rbac", "permission", "cors", "session"],
+    "architecture": [
+        "database", "postgresql", "postgres", "sqlite", "mysql", "mongodb", "schema",
+        "microservice", "monolith", "kafka", "redis", "orm", "composite", "db", "storage"
+    ],
     "refactor": ["cleanup", "restructure", "deprecate", "rename", "modularize", "dry"],
     "implementation": ["function", "loop", "regex", "endpoint", "query", "validation", "pydantic"],
 }
@@ -63,16 +67,35 @@ def _infer_decision_type(text: str) -> str:
 
 def _extract_title(prompt: str, response: str) -> str:
     """Generate a concise title from the prompt or decision clause."""
-    # Check for direct decision sentence in response
+    combined = f"{prompt}\n{response}"
     for pattern in DECISION_TRIGGERS:
-        match = pattern.search(response)
+        match = pattern.search(combined)
         if match:
             candidate = match.group(1).strip()
-            # Clean up and capitalize
-            words = candidate.split()[:8]
-            return "Adopt " + " ".join(words).rstrip(".,")
+            for prefix in ["on ", "to "]:
+                if candidate.lower().startswith(prefix):
+                    candidate = candidate[len(prefix):].strip()
+            # Strip trailing causal and comparative clauses
+            candidate = re.split(
+                r"\s+(?:since|because|due to|so that|as|in order to|to achieve|instead of|rather than|over)\s+",
+                candidate,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip()
+            words = candidate.split()[:4]
+            clean_name = " ".join(words).rstrip(".,")
+            tech_caps = {
+                "sqlite": "SQLite",
+                "postgresql": "PostgreSQL",
+                "postgres": "PostgreSQL",
+                "mysql": "MySQL",
+                "mongodb": "MongoDB",
+                "redis": "Redis",
+                "jwt": "JWT",
+            }
+            display_name = tech_caps.get(clean_name.lower(), clean_name.title())
+            return "Adopt " + display_name
 
-    # Fallback: synthesize title from prompt
     clean_prompt = prompt.strip().split("\n")[0]
     words = clean_prompt.split()[:7]
     return "Decision: " + " ".join(words).rstrip(".,?")

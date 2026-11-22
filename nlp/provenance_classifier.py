@@ -15,6 +15,7 @@ Core Invariant:
 """
 
 import difflib
+import re
 from typing import Literal
 
 
@@ -34,12 +35,19 @@ def compute_code_similarity(ai_snippet: str, diff_content: str) -> float:
     Compute normalized similarity ratio between AI response text and Git diff lines.
 
     Uses SequenceMatcher on tokenized lines to determine lexical overlap.
+    If the AI response contains markdown code blocks (```python ... ```),
+    the code within the fences is extracted for direct comparison.
 
     Returns:
         float: Similarity ratio between 0.0 and 1.0.
     """
     if not ai_snippet or not diff_content:
         return 0.0
+
+    # Extract markdown code blocks if present
+    code_blocks = re.findall(r"```[a-zA-Z0-9_\-\+]*\n(.*?)```", ai_snippet, flags=re.DOTALL)
+    if code_blocks:
+        ai_snippet = "\n".join(code_blocks)
 
     # Clean and split into normalized non-empty lines
     ai_lines = [line.strip() for line in ai_snippet.splitlines() if line.strip()]
