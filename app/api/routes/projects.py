@@ -62,8 +62,13 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import CurrentUser
 from app.db.session import get_db
 from app.models.entities import Project, ProjectMember, User
-from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
-from app.services import project_service
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectResponse,
+    ProjectUpdate,
+    TimelineEventResponse,
+)
+from app.services import project_service, timeline_service
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -302,3 +307,23 @@ def update_project(
         )
 
     return project
+
+
+@router.get(
+    "/{project_id}/timeline",
+    response_model=list[TimelineEventResponse],
+    summary="Retrieve chronological project development timeline",
+)
+def get_project_timeline(
+    project_id: UUID,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[TimelineEventResponse]:
+    """
+    Retrieve the unified chronological activity feed of commits, decisions,
+    and AI interactions for a project.
+    """
+    _require_project_membership(db, project_id, current_user.user_id)
+    return timeline_service.get_project_timeline(db, project_id, limit=limit)
+

@@ -18,7 +18,7 @@ membership rules, and transaction management.
 """
 
 from datetime import datetime
-from typing import Self
+from typing import Any, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -199,3 +199,21 @@ class ProjectResponse(BaseModel):
     # Enable serialization from ORM object attributes, rather than requiring
     # the service layer to manually copy every field into a dictionary.
     model_config = ConfigDict(from_attributes=True)
+
+
+class TimelineEventResponse(BaseModel):
+    """Activity event in a project's chronological development history."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    event_id: UUID = Field(description="Identifier of the event.")
+    event_type: Literal["interaction", "decision", "commit"] = Field(
+        description="Category of the event."
+    )
+    timestamp: datetime = Field(description="Timestamp when event occurred.")
+    title: str = Field(description="Summary title of the event.")
+    actor_id: UUID | None = Field(default=None, description="User who triggered event.")
+    details: dict[str, Any] = Field(
+        default_factory=dict, description="Metadata details."
+    )
+

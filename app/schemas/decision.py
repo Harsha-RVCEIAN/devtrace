@@ -1,4 +1,3 @@
-
 """
 Pydantic schemas for engineering decision management.
 
@@ -7,10 +6,7 @@ Responsibilities:
     - Enforce the status and reason-source values supported by the ORM.
     - Validate confidence values.
     - Serialize Decision ORM instances into API responses.
-
-The schemas validate request shape and field-level rules. Project membership,
-referential integrity, and same-project constraints are handled by the service
-layer, API routes, and database constraints.
+    - Represent extracted NLP candidate proposals awaiting developer approval.
 """
 
 from datetime import datetime
@@ -131,3 +127,25 @@ class DecisionResponse(BaseModel):
     reason_source_type: ReasonSourceType
     reason_confidence: float | None
     decided_at: datetime | None
+
+
+class CandidateAlternativeResponse(BaseModel):
+    """Extracted alternative proposal."""
+
+    description: str
+    selection_status: Literal["selected", "rejected", "considered"]
+
+
+class CandidateDecisionResponse(BaseModel):
+    """Extracted engineering decision proposal awaiting human approval."""
+
+    title: str
+    description: str
+    decision_type: str
+    status: str = "proposed"
+    reason_text: str | None = None
+    reason_source_type: ReasonSourceType = "UNKNOWN"
+    reason_confidence: float = 0.0
+    alternatives: list[CandidateAlternativeResponse] = Field(default_factory=list)
+    project_id: UUID | None = None
+    interaction_id: UUID | None = None

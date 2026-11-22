@@ -23,17 +23,24 @@ additional integrity enforcement if membership changes or a conflicting
 write occurs between application-level validation and insertion.
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.dependencies import CurrentUser, DatabaseSession
-from app.models.entities import ProjectMember
+from app.models.entities import AIInteraction, ProjectMember
+from app.schemas.decision import (
+    CandidateAlternativeResponse,
+    CandidateDecisionResponse,
+)
 from app.schemas.interaction import (
     InteractionCreate,
     InteractionResponse,
 )
 from app.services.interaction_service import create_interaction
+from nlp.decision_extractor import extract_candidate_decision
 
 
 router = APIRouter(
@@ -117,3 +124,67 @@ def ingest_interaction(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The interaction could not be saved.",
         ) from exc
+
+
+@router.post(
+    "/{interaction_id}/extract-candidates",
+    response_model=CandidateDecisionResponse | None,
+    summary="Extract candidate decisions from an AI interaction using NLP",
+)
+def extract_candidates_from_interaction(
+    interaction_id: UUID,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+) -> CandidateDecisionResponse | None:
+    """
+    Scan an interaction transcript to detect engineering choices, rationale,
+    and alternatives, returning a proposed candidate decision for human review.
+    """
+    interaction = db.get(AIInteraction, interaction_id)
+    if interaction is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interaction not found.",
+        )
+
+    # Require project membership
+    membership = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == interaction.project_id,
+            ProjectMember.user_id == current_user.user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interaction not found.",
+        )
+
+    candidate = extract_candidate_decision(
+        prompt=interaction.prompt,
+        response=interaction.response,
+        project_id=interaction.project_id,
+        interaction_id=interaction.interaction_id,
+    )
+    if candidate is None:
+        return None
+
+    return CandidateDecisionResponse(
+        title=candidate.title,
+        description=candidate.description,
+        decision_type=candidate.decision_type,
+        status=candidate.status,
+        reason_text=candidate.reason_text,
+        reason_source_type=candidate.reason_source_type,
+        reason_confidence=candidate.reason_confidence,
+        alternatives=[
+            CandidateAlternativeResponse(
+                description=a.description,
+                selection_status=a.selection_status,
+            )
+            for a in candidate.alternatives
+        ],
+        project_id=candidate.project_id,
+        interaction_id=candidate.interaction_id,
+    )
+
