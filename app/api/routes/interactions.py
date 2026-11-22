@@ -31,16 +31,13 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.dependencies import CurrentUser, DatabaseSession
 from app.models.entities import AIInteraction, ProjectMember
-from app.schemas.decision import (
-    CandidateAlternativeResponse,
-    CandidateDecisionResponse,
-)
 from app.schemas.interaction import (
     InteractionCreate,
     InteractionResponse,
 )
+from app.schemas.nlp import ExtractionResponse
 from app.services.interaction_service import create_interaction
-from nlp.decision_extractor import extract_candidate_decision
+from nlp.pipeline import extract_decisions
 
 
 router = APIRouter(
@@ -128,17 +125,17 @@ def ingest_interaction(
 
 @router.post(
     "/{interaction_id}/extract-candidates",
-    response_model=CandidateDecisionResponse | None,
+    response_model=ExtractionResponse,
     summary="Extract candidate decisions from an AI interaction using NLP",
 )
 def extract_candidates_from_interaction(
     interaction_id: UUID,
     db: DatabaseSession,
     current_user: CurrentUser,
-) -> CandidateDecisionResponse | None:
+) -> ExtractionResponse:
     """
     Scan an interaction transcript to detect engineering choices, rationale,
-    and alternatives, returning a proposed candidate decision for human review.
+    and alternatives, returning proposed candidate decisions for human review.
     """
     interaction = db.get(AIInteraction, interaction_id)
     if interaction is None:
@@ -160,31 +157,11 @@ def extract_candidates_from_interaction(
             detail="Interaction not found.",
         )
 
-    candidate = extract_candidate_decision(
-        prompt=interaction.prompt,
-        response=interaction.response,
+    result = extract_decisions(
+        turns=[(interaction.prompt, interaction.response)],
+        engine="rules",
         project_id=interaction.project_id,
         interaction_id=interaction.interaction_id,
     )
-    if candidate is None:
-        return None
-
-    return CandidateDecisionResponse(
-        title=candidate.title,
-        description=candidate.description,
-        decision_type=candidate.decision_type,
-        status=candidate.status,
-        reason_text=candidate.reason_text,
-        reason_source_type=candidate.reason_source_type,
-        reason_confidence=candidate.reason_confidence,
-        alternatives=[
-            CandidateAlternativeResponse(
-                description=a.description,
-                selection_status=a.selection_status,
-            )
-            for a in candidate.alternatives
-        ],
-        project_id=candidate.project_id,
-        interaction_id=candidate.interaction_id,
-    )
+    return ExtractionResponse.model_validate(result)
 

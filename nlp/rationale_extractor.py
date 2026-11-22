@@ -1,96 +1,164 @@
 """
 nlp/rationale_extractor.py
 
-Purpose:
-    Rule-based extraction and classification of engineering decision rationale
-    from AI conversations and development transcripts.
+Step 3 of the pipeline: find the causal justification for an engineering choice.
 
-Classification Rules:
-    - EXPLICIT: Direct causal statements ('we chose X because Y', 'let's use X since Y', 'the reason is...').
-    - INFERRED: Implied or suggested recommendations ('it might be better to...', 'suggests using...').
-    - UNKNOWN: No clear rationale found. Never fabricates missing reasoning.
+Order of priority:
+    1. Decision sentence connective (EXPLICIT, 0.95):
+       "We chose PostgreSQL because native composite foreign keys provide isolation."
+       Look for: because, since, so that, in order to, due to, given that, to ensure/avoid,
+       or a colon after the choice.
+    2. Nearby justification sentence (EXPLICIT, 0.80):
+       Developer: "ok i feel like session based auth is the best here"
+       Assistant: "Definitely! it has a simpler lifecycle and safer browser storage."
+       Look up to 3 sentences after (skipping conversational filler like "Definitely!")
+       or 1 sentence before in the same message.
+       Look for: "it/this has/provides/keeps/is simpler...", "we need/want/must...", or
+       sentences starting with because/since.
+    3. Hedged wording (INFERRED, 0.60):
+       "It might be better to use Redis to avoid latency."
+       Look for: might, may, probably, likely, perhaps, presumably.
+    4. Nothing found (UNKNOWN, 0.0):
+       Never hallucinate or synthesize reasons.
 """
 
+from dataclasses import dataclass, field
 import re
-from dataclasses import dataclass
 from typing import Literal
 
+from nlp.models import Evidence, ReasonSourceType, Sentence
 
-ReasonSourceType = Literal["EXPLICIT", "INFERRED", "UNKNOWN"]
 
+@dataclass(frozen=True)
+class RationaleResult:
+    """The causal reason found for a decision, plus confidence and evidence."""
 
-@dataclass
-class RationaleExtractionResult:
-    """Structured extraction result for decision rationale."""
     reason_text: str | None
     source_type: ReasonSourceType
     confidence: float
+    evidence: list[Evidence] = field(default_factory=list)
 
 
-# Explicit patterns indicating direct human/AI causal rationale
-EXPLICIT_PATTERNS = [
-    re.compile(
-        r"(?:let's use|lets use|we'll use|we will use|we chose|we selected|we decided on|decided to|opted for|opted to|selected|use|going with)\s+"
-        r"(.*?)\s+(?:because|due to|since|so that|as|in order to|to achieve)\s+(.*?)(?:\.|\n|$)",
-        re.IGNORECASE,
-    ),
-    re.compile(r"(?:the reason is|rationale is|justification:?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:in order to|to achieve)\s+(.*?),\s+(?:we (?:use|chose|decided|selected|will use))\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:since|because)\s+(?:it's|it is|we need|they are|this allows|this provides)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-]
+# Words that introduce a reason inside the decision sentence itself.
+INLINE_CAUSAL = re.compile(
+    r"\b(?:because|since|so that|in order to|due to|given that|to ensure|to avoid|to achieve)\b|(?<=[:–—])\s*",
+    re.IGNORECASE,
+)
 
-# Inferred patterns indicating probabilistic or suggestive reasoning
-INFERRED_PATTERNS = [
-    re.compile(r"(?:it might be better to|would be preferable to|recommend(?:ed)?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:suggests using|advisable to|good practice to)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:presumably|likely|appears best to)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-]
+# Sentences that are pure conversational filler and should be skipped when looking
+# for nearby justifications.
+FILLER_SENTENCES = re.compile(
+    r"^(?:(?:definitely|understood|agreed|sure|great|sounds good|fair|makes sense|got it|cool|nice|okay|ok)[!.]*\s*)+$",
+    re.IGNORECASE,
+)
+
+# Sentences that state a causal justification.
+JUSTIFICATION_LEAD = re.compile(
+    r"^(?:(?:because|since|so that|due to|in order to|to ensure|to avoid)\b|"
+    r"(?:it|this|they)\s+(?:has|have|provides|provide|offers|offer|keeps|keep|gives|give|is|are|allows|allow)\b|"
+    r"(?:we|i)\s+(?:need|want|must|should|require)\b)",
+    re.IGNORECASE,
+)
+
+# Hedged words indicating inferred / suggestive rationale.
+HEDGED_WORDS = re.compile(
+    r"\b(?:might|may|probably|likely|perhaps|presumably|could be better|suggests?)\b",
+    re.IGNORECASE,
+)
 
 
-def extract_rationale(text: str) -> RationaleExtractionResult:
+def find_rationale(
+    decision_sentence: Sentence,
+    all_sentences: list[Sentence],
+) -> RationaleResult:
     """
-    Analyze text to extract rationale and classify source type.
-
-    Args:
-        text: Prompt or response text from an AI interaction.
-
-    Returns:
-        RationaleExtractionResult: Extracted reason text, source type, and confidence.
+    Find the rationale for `decision_sentence` by checking the sentence itself
+    and then searching nearby sentences.
     """
-    if not text or not text.strip():
-        return RationaleExtractionResult(
-            reason_text=None,
-            source_type="UNKNOWN",
-            confidence=0.0,
+    dec_text = decision_sentence.text
+
+    # 1. Check for inline causal connective in the decision sentence itself
+    m = INLINE_CAUSAL.search(dec_text)
+    if m:
+        is_hedged = bool(HEDGED_WORDS.search(dec_text))
+        st: ReasonSourceType = "INFERRED" if is_hedged else "EXPLICIT"
+        conf = 0.65 if is_hedged else 0.95
+        return RationaleResult(
+            reason_text=dec_text,
+            source_type=st,
+            confidence=conf,
+            evidence=[Evidence.from_sentence(decision_sentence, "rationale")],
         )
 
-    clean_text = " ".join(text.split())
+    # 2. Check 1 sentence before in the same message
+    dec_idx = decision_sentence.id
+    if dec_idx > 0:
+        prev_s = all_sentences[dec_idx - 1]
+        if prev_s.message_index == decision_sentence.message_index:
+            if JUSTIFICATION_LEAD.search(prev_s.text):
+                is_hedged = bool(HEDGED_WORDS.search(prev_s.text))
+                return RationaleResult(
+                    reason_text=prev_s.text,
+                    source_type="INFERRED" if is_hedged else "EXPLICIT",
+                    confidence=0.60 if is_hedged else 0.80,
+                    evidence=[Evidence.from_sentence(prev_s, "rationale")],
+                )
 
-    # 1. Check for EXPLICIT rationale patterns
-    for pattern in EXPLICIT_PATTERNS:
-        match = pattern.search(clean_text)
-        if match:
-            extracted_reason = match.group(0).strip()
-            return RationaleExtractionResult(
-                reason_text=extracted_reason,
-                source_type="EXPLICIT",
-                confidence=0.95,
-            )
+    # 3. Check up to 3 sentences after (skipping filler)
+    found_justifications: list[Sentence] = []
+    checked_count = 0
+    next_idx = dec_idx + 1
 
-    # 2. Check for INFERRED rationale patterns
-    for pattern in INFERRED_PATTERNS:
-        match = pattern.search(clean_text)
-        if match:
-            extracted_reason = match.group(0).strip()
-            return RationaleExtractionResult(
-                reason_text=extracted_reason,
-                source_type="INFERRED",
-                confidence=0.65,
-            )
+    while next_idx < len(all_sentences) and checked_count < 3:
+        curr = all_sentences[next_idx]
+        next_idx += 1
+        checked_count += 1
 
-    # 3. Default to UNKNOWN: no rationale claimed when none exists
-    return RationaleExtractionResult(
+        if FILLER_SENTENCES.match(curr.text.strip()):
+            continue
+
+        if JUSTIFICATION_LEAD.search(curr.text):
+            found_justifications.append(curr)
+            # Take up to 2 closely linked justification sentences
+            if len(found_justifications) >= 2:
+                break
+
+    if found_justifications:
+        combined_text = " ".join(s.text for s in found_justifications)
+        is_hedged = any(HEDGED_WORDS.search(s.text) for s in found_justifications)
+        st = "INFERRED" if is_hedged else "EXPLICIT"
+        conf = 0.60 if is_hedged else 0.80
+        ev = [Evidence.from_sentence(s, "rationale") for s in found_justifications]
+        return RationaleResult(
+            reason_text=combined_text,
+            source_type=st,
+            confidence=conf,
+            evidence=ev,
+        )
+
+    # 4. Check if the decision sentence itself was hedged
+    if HEDGED_WORDS.search(dec_text):
+        return RationaleResult(
+            reason_text=dec_text,
+            source_type="INFERRED",
+            confidence=0.60,
+            evidence=[Evidence.from_sentence(decision_sentence, "rationale")],
+        )
+
+    # 5. Default to UNKNOWN
+    return RationaleResult(
         reason_text=None,
         source_type="UNKNOWN",
         confidence=0.0,
+        evidence=[],
     )
+
+
+def extract_rationale(text: str) -> RationaleResult:
+    """Backwards compatibility for unit tests."""
+    from nlp.transcript import build_transcript
+
+    sentences = build_transcript([(text, "")])
+    if not sentences:
+        return RationaleResult(reason_text=None, source_type="UNKNOWN", confidence=0.0)
+    return find_rationale(sentences[0], sentences)

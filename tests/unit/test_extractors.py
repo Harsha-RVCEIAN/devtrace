@@ -7,13 +7,14 @@ Tests:
     1. Rationale extraction: EXPLICIT vs INFERRED vs UNKNOWN.
     2. Alternative extraction: selected, rejected, considered.
     3. Candidate decision extraction pipeline.
-    4. Code provenance origin classification.
+    4. Code provenance origin classification (preserved).
 """
 
 import pytest
 
 from nlp.alternative_extractor import extract_alternatives
 from nlp.decision_extractor import extract_candidate_decision
+from nlp.pipeline import extract_decisions
 from nlp.provenance_classifier import (
     classify_provenance_origin,
     compute_code_similarity,
@@ -112,7 +113,7 @@ def test_candidate_decision_none_when_no_choice():
 
 
 # ---------------------------------------------------------------------------
-# 4. Provenance Classification Tests
+# 4. Provenance Classification Tests (Preserved)
 # ---------------------------------------------------------------------------
 def test_provenance_classification_exact():
     """Verify editor telemetry guarantees ai_exact classification."""

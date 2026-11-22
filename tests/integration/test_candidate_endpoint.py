@@ -7,7 +7,7 @@ Integration tests for the NLP candidate decision extraction API endpoint:
 Tests:
     1. Extracts proposed candidate decision with alternatives and explicit rationale.
     2. Rejects unauthorized / non-member access (HTTP 404).
-    3. Returns null for non-decision conversation turns.
+    3. Returns empty candidates list for non-decision conversation turns.
 """
 
 from uuid import uuid4
@@ -61,8 +61,11 @@ def test_extract_candidates_from_interaction_success(db_session):
     app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    candidate = response.json()
-    assert candidate is not None
+    data = response.json()
+    assert data["engine_used"] == "rules"
+    assert len(data["candidates"]) >= 1
+
+    candidate = data["candidates"][0]
     assert candidate["title"] == "Adopt PostgreSQL"
     assert candidate["decision_type"] == "architecture"
     assert candidate["status"] == "proposed"  # Strict invariant
@@ -97,3 +100,30 @@ def test_extract_candidates_rejects_non_members(db_session):
     app.dependency_overrides.clear()
 
     assert response.status_code == 404
+
+
+def test_extract_candidates_empty_when_no_decision(db_session):
+    user, project = create_user_and_project(db_session)
+    interaction = AIInteraction(
+        project_id=project.project_id,
+        user_id=user.user_id,
+        tool_name="ChatGPT",
+        model_name="gpt-5",
+        prompt="What is the syntax for a foreign key in SQL?",
+        response="In SQL, you write: FOREIGN KEY (id) REFERENCES other_table(id).",
+    )
+    db_session.add(interaction)
+    db_session.commit()
+
+    app.dependency_overrides[get_db] = lambda: db_session
+    client = TestClient(app)
+
+    response = client.post(
+        f"/interactions/{interaction.interaction_id}/extract-candidates",
+        headers={"X-User-ID": str(user.user_id)},
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["candidates"] == []

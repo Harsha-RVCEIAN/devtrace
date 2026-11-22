@@ -33,6 +33,7 @@ from app.api.routes import (
     decisions,
     evidence,
     interactions,
+    nlp,
     projects,
     users,
 )
@@ -128,6 +129,7 @@ app.include_router(alternatives.router)
 app.include_router(evidence.router)
 app.include_router(commits.router)
 app.include_router(code_changes.router)
+app.include_router(nlp.router)
 
 # ---------------------------------------------------------------------------
 # Health-check endpoint

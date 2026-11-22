@@ -234,7 +234,26 @@ export async function fetchDecisions(projectId) {
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.length > 0) return data;
+      if (data.length > 0) {
+        // Enrich decisions with alternatives from the database
+        const enriched = await Promise.all(
+          data.map(async (d) => {
+            try {
+              const altRes = await fetch(`${API_BASE}/decisions/${d.decision_id}/alternatives`, {
+                headers: { "X-User-ID": DEMO_USER_ID },
+              });
+              if (altRes.ok) {
+                const alts = await altRes.json();
+                return { ...d, alternatives: alts };
+              }
+            } catch (e) {
+              // Ignore single failure
+            }
+            return { ...d, alternatives: [] };
+          })
+        );
+        return enriched;
+      }
     }
   } catch (err) {
     console.warn("Backend offline, using fallback decisions.");
@@ -261,32 +280,28 @@ export async function fetchChanges(projectId) {
   return FALLBACK_CHANGES;
 }
 
-export async function extractCandidateFromText(prompt, response, projectId) {
-  // Simulates or calls backend candidate extraction
-  const lowerPrompt = prompt.toLowerCase();
-  const lowerResp = response.toLowerCase();
+/**
+ * Extract structured candidate decisions from multi-turn conversation turns.
+ * Calls the FastAPI NLP pipeline (/nlp/extract-candidates).
+ * Throws an error if the backend service is offline.
+ */
+export async function extractCandidatesFromTurns(turns, engine = "rules", projectId = null) {
+  const res = await fetch(`${API_BASE}/nlp/extract-candidates`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      turns,
+      engine,
+      project_id: projectId || undefined,
+    }),
+  });
 
-  let decisionType = "architecture";
-  if (lowerPrompt.includes("auth") || lowerResp.includes("session") || lowerResp.includes("jwt")) {
-    decisionType = "security";
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || `Server returned error ${res.status}`);
   }
 
-  let title = "Adopt Proposed Architecture";
-  if (lowerResp.includes("sqlite") || lowerPrompt.includes("sqlite")) title = "Adopt SQLite";
-  else if (lowerResp.includes("postgres") || lowerPrompt.includes("postgres")) title = "Adopt PostgreSQL";
-  else if (lowerResp.includes("redis")) title = "Adopt Redis Sessions";
-
-  return {
-    title,
-    description: response.trim().split("\n")[0] || prompt.trim().split("\n")[0],
-    decision_type: decisionType,
-    status: "proposed",
-    reason_source_type: "EXPLICIT",
-    reason_confidence: 0.95,
-    reason_text: "Extracted causal justification from conversation transcript.",
-    alternatives: [
-      { description: title.replace("Adopt ", ""), selection_status: "selected" },
-      { description: "Alternative Option", selection_status: "rejected" },
-    ],
-  };
+  return await res.json();
 }

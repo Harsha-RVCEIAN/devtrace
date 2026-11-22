@@ -129,6 +129,26 @@ class Settings(BaseSettings):
         validation_alias="DB_PASSWORD",
     )
 
+    # NLP extraction engine settings:
+    # - nlp_engine: "rules" (default, deterministic), "llm" (Ollama), or "auto"
+    nlp_engine: str = Field(
+        default="rules",
+        validation_alias="NLP_ENGINE",
+    )
+    ollama_url: str = Field(
+        default="http://localhost:11434",
+        validation_alias="OLLAMA_URL",
+    )
+    nlp_llm_model: str = Field(
+        default="llama3:latest",
+        validation_alias="NLP_LLM_MODEL",
+    )
+    nlp_llm_timeout_seconds: int = Field(
+        default=120,
+        ge=1,
+        validation_alias="NLP_LLM_TIMEOUT_SECONDS",
+    )
+
     # Configure how Pydantic Settings reads configuration:
     # - env_file: load values from the absolute .env path defined above.
     # - env_file_encoding: read the file as UTF-8.

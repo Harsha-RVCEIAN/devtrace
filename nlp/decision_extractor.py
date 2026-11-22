@@ -1,154 +1,315 @@
 """
 nlp/decision_extractor.py
 
-Purpose:
-    Core NLP extraction pipeline that analyzes an AI interaction transcript
-    and produces a CandidateDecision proposal for developer review.
+Step 4 of the pipeline: scan sentences for statements where a speaker commits to,
+prefers, recommends, or accepts an architectural option.
 
-Core Principle:
-    Candidate decisions are ALWAYS generated with status='proposed'.
-    They must never be auto-approved into the authoritative DECISION
-    table without human developer review.
+Core principles:
+    1. NEVER treat a question as a decision.
+    2. Authority and confidence depend on the kind of statement and who said it:
+         Developer commit       -> authority 3, conf 0.90
+         Developer acceptance   -> authority 3, conf 0.85
+         Assistant commit       -> authority 2, conf 0.85
+         Developer preference   -> authority 2, conf 0.80
+         Assistant recommendation -> authority 1, conf 0.65
+         Developer tentative    -> authority 1, conf 0.50
+    3. Resolve references:
+         "the first/second/last one", "the latter/former", "option 2" map to the
+         latest option set.
+         "it", "that", "your suggestion" map to the previous recommendation.
 """
 
+from dataclasses import dataclass
 import re
-from dataclasses import dataclass, field
-from typing import Any
-from uuid import UUID
+from typing import Literal
 
-from nlp.alternative_extractor import ExtractedAlternative, extract_alternatives
-from nlp.rationale_extractor import RationaleExtractionResult, extract_rationale
-
-
-@dataclass
-class CandidateDecision:
-    """A proposed engineering decision awaiting human review."""
-    title: str
-    description: str
-    decision_type: str
-    status: str = "proposed"
-    reason_text: str | None = None
-    reason_source_type: str = "UNKNOWN"
-    reason_confidence: float = 0.0
-    alternatives: list[ExtractedAlternative] = field(default_factory=list)
-    project_id: UUID | None = None
-    interaction_id: UUID | None = None
+from nlp.alternative_extractor import OptionSet
+from nlp.models import CandidateDecision, Sentence, Speaker
+from nlp.text_utils import best_match, clean_option_phrase, same_option
 
 
-# Decision trigger keywords indicating architectural/engineering choices
-DECISION_TRIGGERS = [
-    re.compile(r"(?:let's use|lets use|we'll use|we will use|we'll go with|let's go with|going with)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:we (?:decided|chose|selected|will use|should use)(?:\s+on|\s+to)?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:recommend(?:ed)? (?:using|approach is|to))\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:the decision is to|architecture choice:?)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
-    re.compile(r"(?:better to use|opted for|opt for)\s+(.*?)(?:\.|\n|$)", re.IGNORECASE),
+StatementKind = Literal["commit", "preference", "tentative", "recommendation", "acceptance"]
+
+
+@dataclass(frozen=True)
+class DecisionStatement:
+    """A statement in the conversation expressing a choice."""
+
+    choice: str
+    kind: StatementKind
+    authority: int
+    confidence: float
+    sentence: Sentence
+    rejected_option: str | None = None
+    target_option_set: OptionSet | None = None
+
+
+@dataclass(frozen=True)
+class StatementPattern:
+    """A regex pattern defining how choices are declared in prose."""
+
+    name: str
+    pattern: re.Pattern
+    kind: StatementKind
+    speakers: tuple[Speaker, ...] = ("developer", "assistant")
+    needs_option_match: bool = False
+    needs_choice_question: bool = False
+
+
+# Acceptance statements: short developer messages that agree to an assistant recommendation
+ACCEPTANCE_REGEX = re.compile(
+    r"^(?:(?:ok(?:ay)?|sounds good|agreed|sure|fair|makes sense|go ahead|let's do it|cool|fine)[!.]*\s*)+$",
+    re.IGNORECASE,
+)
+
+PATTERNS: list[StatementPattern] = [
+    # Commits
+    StatementPattern(
+        name="replace_with",
+        pattern=re.compile(r"\breplace\s+(?P<rejected>[A-Za-z0-9_\-\.\s]+?)\s+with\s+(?P<choice>[A-Za-z0-9_\-\.\s]+)", re.IGNORECASE),
+        kind="commit",
+    ),
+    StatementPattern(
+        name="migrate_switch_from",
+        pattern=re.compile(r"\b(?:migrate|switch)\s+(?:from\s+(?P<rejected>[A-Za-z0-9_\-\.\s]+?)\s+)?to\s+(?P<choice>[A-Za-z0-9_\-\.\s]+)", re.IGNORECASE),
+        kind="commit",
+    ),
+    StatementPattern(
+        name="x_it_is",
+        pattern=re.compile(r"\b(?P<choice>[A-Za-z0-9_\-\.\s]{2,30})\s+it\s+is\b", re.IGNORECASE),
+        kind="commit",
+    ),
+    StatementPattern(
+        name="explicit_commit",
+        pattern=re.compile(
+            r"\b(?:let's use|lets use|we'll use|we will use|we decided on|we decided to use|we chose|we selected|opted for|going with|go with)\s+"
+            r"(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})",
+            re.IGNORECASE,
+        ),
+        kind="commit",
+    ),
+
+    # Preferences
+    StatementPattern(
+        name="feel_like_best",
+        pattern=re.compile(
+            r"\b(?:i feel like|i think|i believe|in my opinion)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})\s+is\s+(?:the\s+)?(?:best|better|right|way to go)\b",
+            re.IGNORECASE,
+        ),
+        kind="preference",
+        speakers=("developer",),
+    ),
+    StatementPattern(
+        name="sounds_best",
+        pattern=re.compile(
+            r"\b(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})\s+(?:seems|sounds)\s+like\s+(?:the\s+)?(?:best|better|right)\b",
+            re.IGNORECASE,
+        ),
+        kind="preference",
+    ),
+    StatementPattern(
+        name="better_fit",
+        pattern=re.compile(
+            r"\b(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})\s+is\s+(?:a\s+)?(?:better|ideal|superior)\s+(?:fit|choice|option)\b",
+            re.IGNORECASE,
+        ),
+        kind="preference",
+    ),
+    StatementPattern(
+        name="i_prefer",
+        pattern=re.compile(r"\bi\s+prefer\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})", re.IGNORECASE),
+        kind="preference",
+        speakers=("developer",),
+    ),
+
+    # Tentative
+    StatementPattern(
+        name="was_thinking",
+        pattern=re.compile(
+            r"\b(?:i was thinking|was leaning towards|maybe we could use|maybe)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})",
+            re.IGNORECASE,
+        ),
+        kind="tentative",
+        speakers=("developer",),
+    ),
+
+    # Recommendations
+    StatementPattern(
+        name="recommend_suggest",
+        pattern=re.compile(
+            r"\b(?:i recommend|i suggest|recommendation is to use|we recommend)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})",
+            re.IGNORECASE,
+        ),
+        kind="recommendation",
+        speakers=("assistant",),
+    ),
+    StatementPattern(
+        name="you_should_use",
+        pattern=re.compile(
+            r"\b(?:you should use|it might be better to use|advisable to use)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})",
+            re.IGNORECASE,
+        ),
+        kind="recommendation",
+        speakers=("assistant",),
+    ),
+    StatementPattern(
+        name="bare_use_recommendation",
+        pattern=re.compile(r"^(?:use|adopt)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})", re.IGNORECASE),
+        kind="recommendation",
+        speakers=("assistant",),
+        needs_choice_question=True,
+    ),
 ]
 
-# Type classification heuristics
-TYPE_KEYWORDS = {
-    "security": ["auth", "token", "jwt", "encrypt", "password", "hash", "rbac", "permission", "cors", "session"],
-    "architecture": [
-        "database", "postgresql", "postgres", "sqlite", "mysql", "mongodb", "schema",
-        "microservice", "monolith", "kafka", "redis", "orm", "composite", "db", "storage"
-    ],
-    "refactor": ["cleanup", "restructure", "deprecate", "rename", "modularize", "dry"],
-    "implementation": ["function", "loop", "regex", "endpoint", "query", "validation", "pydantic"],
-}
+
+def _compute_authority_and_conf(kind: StatementKind, speaker: Speaker) -> tuple[int, float]:
+    """Return (authority_rank, confidence_score)."""
+    if speaker == "developer":
+        if kind == "commit":
+            return (3, 0.90)
+        if kind == "acceptance":
+            return (3, 0.85)
+        if kind == "preference":
+            return (2, 0.80)
+        if kind == "tentative":
+            return (1, 0.50)
+    else:  # assistant
+        if kind == "commit":
+            return (2, 0.85)
+        if kind in ("recommendation", "preference"):
+            return (1, 0.65)
+    return (1, 0.50)
 
 
-def _infer_decision_type(text: str) -> str:
-    """Determine decision category based on domain terminology."""
-    lower = text.lower()
-    for dtype, keywords in TYPE_KEYWORDS.items():
-        if any(kw in lower for kw in keywords):
-            return dtype
-    return "implementation"
+def _resolve_ordinal_reference(raw_choice: str, option_sets: list[OptionSet]) -> str | None:
+    """Resolve 'the latter', 'the former', 'the second one', 'option 1' to option name."""
+    if not option_sets:
+        return None
+    latest_set = option_sets[-1]
+    opts = latest_set.options
+    if not opts:
+        return None
+
+    raw = raw_choice.lower().strip()
+    if "former" in raw or "first" in raw or "option 1" in raw:
+        return opts[0]
+    if "latter" in raw or "last" in raw:
+        return opts[-1]
+    if "second" in raw or "option 2" in raw:
+        return opts[1] if len(opts) > 1 else opts[0]
+    if "third" in raw or "option 3" in raw:
+        return opts[2] if len(opts) > 2 else None
+    return None
 
 
-def _extract_title(prompt: str, response: str) -> str:
-    """Generate a concise title from the prompt or decision clause."""
-    combined = f"{prompt}\n{response}"
-    for pattern in DECISION_TRIGGERS:
-        match = pattern.search(combined)
-        if match:
-            candidate = match.group(1).strip()
-            for prefix in ["on ", "to "]:
-                if candidate.lower().startswith(prefix):
-                    candidate = candidate[len(prefix):].strip()
-            # Strip trailing causal and comparative clauses
-            candidate = re.split(
-                r"\s+(?:since|because|due to|so that|as|in order to|to achieve|instead of|rather than|over)\s+",
-                candidate,
-                maxsplit=1,
-                flags=re.IGNORECASE,
-            )[0].strip()
-            words = candidate.split()[:4]
-            clean_name = " ".join(words).rstrip(".,")
-            tech_caps = {
-                "sqlite": "SQLite",
-                "postgresql": "PostgreSQL",
-                "postgres": "PostgreSQL",
-                "mysql": "MySQL",
-                "mongodb": "MongoDB",
-                "redis": "Redis",
-                "jwt": "JWT",
-            }
-            display_name = tech_caps.get(clean_name.lower(), clean_name.title())
-            return "Adopt " + display_name
+def find_decision_statements(
+    sentences: list[Sentence],
+    option_sets: list[OptionSet],
+) -> list[DecisionStatement]:
+    """Scan transcript sentences and extract statements declaring choices."""
+    statements: list[DecisionStatement] = []
+    last_assistant_recommendation: DecisionStatement | None = None
 
-    clean_prompt = prompt.strip().split("\n")[0]
-    words = clean_prompt.split()[:7]
-    return "Decision: " + " ".join(words).rstrip(".,?")
+    for i, s in enumerate(sentences):
+        # Rule 1: Never treat a question as a decision statement
+        if s.is_question or "?" in s.text:
+            continue
+
+        # Check for developer acceptance of previous assistant recommendation
+        if s.speaker == "developer" and last_assistant_recommendation is not None:
+            if ACCEPTANCE_REGEX.match(s.text.strip()):
+                auth, conf = _compute_authority_and_conf("acceptance", "developer")
+                statements.append(
+                    DecisionStatement(
+                        choice=last_assistant_recommendation.choice,
+                        kind="acceptance",
+                        authority=auth,
+                        confidence=conf,
+                        sentence=s,
+                        target_option_set=last_assistant_recommendation.target_option_set,
+                    )
+                )
+                continue
+
+        # Check all statement patterns
+        for pat in PATTERNS:
+            if s.speaker not in pat.speakers:
+                continue
+
+            # Check choice question prerequisite if required
+            if pat.needs_choice_question:
+                # Find previous developer message
+                has_choice_q = False
+                for prev in reversed(sentences[:i]):
+                    if prev.speaker == "developer":
+                        if prev.is_question and any(w in prev.text.lower() for w in ("which", "what", "should", "how", "or")):
+                            has_choice_q = True
+                        break
+                if not has_choice_q and not any(same_option(s.text, o) for oset in option_sets for o in oset.options):
+                    continue
+
+            m = pat.pattern.search(s.text)
+            if not m:
+                continue
+
+            raw_choice = m.group("choice")
+            rejected_part = m.group("rejected") if "rejected" in m.groupdict() else None
+            cleaned_rejected = clean_option_phrase(rejected_part) if rejected_part else None
+
+            # Check reference resolution
+            resolved_choice = _resolve_ordinal_reference(raw_choice, option_sets)
+            if resolved_choice is None:
+                # Check anaphoric references
+                if raw_choice.lower().strip() in ("it", "that", "your suggestion", "the suggestion"):
+                    if last_assistant_recommendation:
+                        resolved_choice = last_assistant_recommendation.choice
+
+            if resolved_choice is None:
+                resolved_choice = clean_option_phrase(raw_choice)
+
+            if not resolved_choice:
+                continue
+
+            # Link with matching option set if any, canonicalizing choice to full option name
+            matched_set: OptionSet | None = None
+            for oset in reversed(option_sets):
+                bm = best_match(resolved_choice, oset.options)
+                if bm:
+                    matched_set = oset
+                    resolved_choice = bm
+                    break
+
+            auth, conf = _compute_authority_and_conf(pat.kind, s.speaker)
+            stmt = DecisionStatement(
+                choice=resolved_choice,
+                kind=pat.kind,
+                authority=auth,
+                confidence=conf,
+                sentence=s,
+                rejected_option=cleaned_rejected,
+                target_option_set=matched_set,
+            )
+            statements.append(stmt)
+
+            if s.speaker == "assistant" and pat.kind in ("recommendation", "commit"):
+                last_assistant_recommendation = stmt
+
+            break  # Matched highest priority pattern for this sentence
+
+    return statements
 
 
 def extract_candidate_decision(
     prompt: str,
     response: str,
-    project_id: UUID | None = None,
-    interaction_id: UUID | None = None,
+    project_id=None,
+    interaction_id=None,
 ) -> CandidateDecision | None:
-    """
-    Analyze an AI interaction prompt and response to generate a candidate decision.
+    """Backwards compatibility: extract decision using the rule engine."""
+    from nlp.rule_engine import RuleEngine
+    from nlp.transcript import build_transcript
 
-    Args:
-        prompt: User prompt submitted to the AI tool.
-        response: Output produced by the AI model.
-        project_id: Optional project UUID context.
-        interaction_id: Optional interaction UUID context.
-
-    Returns:
-        CandidateDecision | None: Proposed candidate, or None if no decision detected.
-    """
-    combined_text = f"{prompt}\n{response}"
-
-    # 1. Check if any decision trigger exists
-    has_trigger = any(p.search(combined_text) for p in DECISION_TRIGGERS)
-    if not has_trigger:
-        # No engineering choice was made (casual question or simple lookup)
-        return None
-
-    # 2. Extract rationale & source classification
-    rationale_res: RationaleExtractionResult = extract_rationale(combined_text)
-
-    # 3. Extract candidate alternatives
-    alternatives: list[ExtractedAlternative] = extract_alternatives(combined_text)
-
-    # 4. Generate title & description
-    title = _extract_title(prompt, response)
-    decision_type = _infer_decision_type(combined_text)
-
-    # Description is a high-level summary of what was chosen
-    description = rationale_res.reason_text or prompt.strip().split("\n")[0]
-
-    return CandidateDecision(
-        title=title,
-        description=description,
-        decision_type=decision_type,
-        status="proposed",  # Strictly proposed - never auto-approved
-        reason_text=rationale_res.reason_text,
-        reason_source_type=rationale_res.source_type,
-        reason_confidence=rationale_res.confidence,
-        alternatives=alternatives,
-        project_id=project_id,
-        interaction_id=interaction_id,
-    )
+    sentences = build_transcript([(prompt, response)])
+    engine = RuleEngine()
+    candidates = engine.extract(sentences, project_id=project_id, interaction_id=interaction_id)
+    return candidates[0] if candidates else None
