@@ -28,10 +28,12 @@ from app.core.config import settings
 # response schemas, and HTTP error handling.
 from app.api.routes import (
     alternatives,
+    auth,
     code_changes,
     commits,
     decisions,
     evidence,
+    github,
     interactions,
     nlp,
     projects,
@@ -95,9 +97,13 @@ app = DevTraceFastAPI(
     openapi_url="/openapi.json",
 )
 
+_allowed_origins = list(
+    dict.fromkeys([settings.frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"])
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -121,6 +127,8 @@ app.add_middleware(
 #   POST /interactions
 #
 # Exact paths and supported methods are defined in the individual routers.
+app.include_router(auth.router)
+app.include_router(github.router)
 app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(interactions.router)
