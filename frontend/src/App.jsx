@@ -3,6 +3,7 @@ import { Navbar } from "./components/Navbar";
 import { CandidateStudio } from "./pages/CandidateStudio";
 import { Login } from "./pages/Login";
 import { Projects } from "./pages/Projects";
+import { ProjectWorkspace } from "./pages/ProjectWorkspace";
 import { fetchCurrentUser, logout } from "./api/client";
 
 export default function App() {
@@ -10,6 +11,7 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [activeTab, setActiveTab] = useState("projects");
   const [offlineNlpMode, setOfflineNlpMode] = useState(false);
+  const [workspaceProject, setWorkspaceProject] = useState(null);
 
   useEffect(() => {
     async function checkAuth() {
@@ -27,9 +29,18 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
-    await logout().catch(() => {});
+    await logout().catch(() => { });
     setUser(null);
     setOfflineNlpMode(false);
+    setWorkspaceProject(null);
+  };
+
+  const openWorkspace = (project) => {
+    setWorkspaceProject(project);
+  };
+
+  const closeWorkspace = () => {
+    setWorkspaceProject(null);
   };
 
   if (!authChecked) {
@@ -55,6 +66,27 @@ export default function App() {
     );
   }
 
+  // Workspace view replaces everything when a project is open
+  if (workspaceProject && user) {
+    return (
+      <ProjectWorkspace
+        project={workspaceProject}
+        currentUser={user}
+        onBack={closeWorkspace}
+      />
+    );
+  }
+
+  if (workspaceProject && user) {
+    return (
+      <ProjectWorkspace
+        project={workspaceProject}
+        currentUser={user}
+        onBack={closeWorkspace}
+      />
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Navbar
@@ -65,7 +97,9 @@ export default function App() {
         onBackToLogin={() => setOfflineNlpMode(false)}
       />
       <main style={{ flex: 1 }}>
-        {activeTab === "projects" && user && <Projects user={user} />}
+        {activeTab === "projects" && user && (
+          <Projects user={user} onOpenWorkspace={openWorkspace} />
+        )}
         {activeTab === "nlp" && <CandidateStudio />}
       </main>
     </div>

@@ -103,3 +103,49 @@ export async function extractCandidatesFromTurns(turns, engine = "rules", projec
     }),
   });
 }
+
+// --- Workspace API ---
+
+export async function fetchCommits(projectId, { limit = 50, offset = 0 } = {}) {
+  return apiFetch(`/projects/${projectId}/commits?limit=${limit}&offset=${offset}`);
+}
+
+export async function fetchCodeChanges(projectId, { missing_provenance_only = false, limit = 50, offset = 0 } = {}) {
+  return apiFetch(
+    `/projects/${projectId}/code-changes?missing_provenance_only=${missing_provenance_only}&limit=${limit}&offset=${offset}`
+  );
+}
+
+export async function fetchProvenance(changeId) {
+  return apiFetch(`/changes/${changeId}/provenance`);
+}
+
+export async function linkDecisionToChange(changeId, decisionId) {
+  return apiFetch(`/changes/${changeId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ decision_id: decisionId }),
+  });
+}
+
+export async function fetchAlternatives(decisionId) {
+  return apiFetch(`/decisions/${decisionId}/alternatives`);
+}
+
+export async function fetchEvidence(decisionId) {
+  return apiFetch(`/decisions/${decisionId}/evidence`);
+}
+
+export async function updateDecisionStatus(decisionId, status) {
+  return apiFetch(`/decisions/${decisionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function fetchTimeline(projectId, { limit = 100 } = {}) {
+  return apiFetch(`/projects/${projectId}/timeline?limit=${limit}`);
+}
+
+export async function fetchDecisions(projectId) {
+  return apiFetch(`/projects/${projectId}/decisions`);
+}

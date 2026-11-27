@@ -9,7 +9,7 @@ import {
   syncGitHubProject,
 } from "../api/client";
 
-export function Projects({ user }) {
+export function Projects({ user, onOpenWorkspace }) {
   const [projects, setProjects] = useState([]);
   const [repos, setRepos] = useState([]);
   const [repoUrlInput, setRepoUrlInput] = useState("");
@@ -138,6 +138,11 @@ export function Projects({ user }) {
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: "12px",
+                  cursor: onOpenWorkspace ? "pointer" : "default",
+                }}
+                onClick={(e) => {
+                  if (e.target.closest("button") || e.target.closest("input")) return;
+                  if (onOpenWorkspace) onOpenWorkspace(p);
                 }}
               >
                 <div>
