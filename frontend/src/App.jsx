@@ -1,104 +1,72 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Navbar } from "./components/Navbar";
-import { Dashboard } from "./pages/Dashboard";
-import { Decisions } from "./pages/Decisions";
-import { Provenance } from "./pages/Provenance";
 import { CandidateStudio } from "./pages/CandidateStudio";
-import { Timeline } from "./components/Timeline";
-import {
-  fetchProjects,
-  fetchSummary,
-  fetchDecisions,
-  fetchTimeline,
-  fetchChanges,
-} from "./api/client";
+import { Login } from "./pages/Login";
+import { Projects } from "./pages/Projects";
+import { fetchCurrentUser, logout } from "./api/client";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("overview");
-  const [projects, setProjects] = useState([]);
-  const [currentProject, setCurrentProject] = useState(null);
-  const [summary, setSummary] = useState({
-    total_changes: 5,
-    ai_exact_changes: 3,
-    ai_inferred_changes: 1,
-    human_changes: 1,
-    missing_provenance: 1,
-    uncommitted_changes: 0,
-  });
-  const [decisions, setDecisions] = useState([]);
-  const [timelineEvents, setTimelineEvents] = useState([]);
-  const [changes, setChanges] = useState([]);
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [activeTab, setActiveTab] = useState("projects");
+  const [offlineNlpMode, setOfflineNlpMode] = useState(false);
 
   useEffect(() => {
-    async function loadInitial() {
-      const projs = await fetchProjects();
-      setProjects(projs);
-      if (projs.length > 0) {
-        setCurrentProject(projs[0]);
+    async function checkAuth() {
+      try {
+        const me = await fetchCurrentUser();
+        setUser(me);
+        if (me) setActiveTab("projects");
+      } catch {
+        setUser(null);
+      } finally {
+        setAuthChecked(true);
       }
     }
-    loadInitial();
+    checkAuth();
   }, []);
 
-  useEffect(() => {
-    if (!currentProject) return;
+  const handleLogout = async () => {
+    await logout().catch(() => {});
+    setUser(null);
+    setOfflineNlpMode(false);
+  };
 
-    async function loadProjectData() {
-      const pid = currentProject.project_id;
-      const [sum, decs, tl, chgs] = await Promise.all([
-        fetchSummary(pid),
-        fetchDecisions(pid),
-        fetchTimeline(pid),
-        fetchChanges(pid),
-      ]);
-      setSummary(sum);
-      setDecisions(decs);
-      setTimelineEvents(tl);
-      setChanges(chgs);
-    }
-    loadProjectData();
-  }, [currentProject]);
+  if (!authChecked) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+        Loading DevTrace...
+      </div>
+    );
+  }
+
+  if (!user && !offlineNlpMode) {
+    return (
+      <Login
+        onAuthSuccess={(loggedInUser) => {
+          setUser(loggedInUser);
+          setActiveTab("projects");
+        }}
+        onOpenNlpOffline={() => {
+          setOfflineNlpMode(true);
+          setActiveTab("nlp");
+        }}
+      />
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        projects={projects}
-        currentProject={currentProject}
-        setCurrentProject={setCurrentProject}
+        user={user}
+        onLogout={handleLogout}
+        onBackToLogin={() => setOfflineNlpMode(false)}
       />
-
       <main style={{ flex: 1 }}>
-        {activeTab === "overview" && (
-          <Dashboard project={currentProject} summary={summary} decisions={decisions} />
-        )}
-
-        {activeTab === "decisions" && (
-          <Decisions decisions={decisions} />
-        )}
-
-        {activeTab === "timeline" && (
-          <div style={{ maxWidth: "900px", margin: "0 auto", padding: "24px" }}>
-            <div style={{ marginBottom: "20px" }}>
-              <h1 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "4px" }}>
-                Project Activity Timeline
-              </h1>
-              <p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
-                Chronological unified activity stream of commits, architectural decisions, and AI interactions.
-              </p>
-            </div>
-            <Timeline events={timelineEvents} />
-          </div>
-        )}
-
-        {activeTab === "provenance" && (
-          <Provenance changes={changes} />
-        )}
-
-        {activeTab === "nlp" && (
-          <CandidateStudio projectId={currentProject?.project_id} />
-        )}
+        {activeTab === "projects" && user && <Projects user={user} />}
+        {activeTab === "nlp" && <CandidateStudio />}
       </main>
     </div>
   );

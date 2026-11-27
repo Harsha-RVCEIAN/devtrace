@@ -1,102 +1,129 @@
 import React from "react";
-import { Database, GitCommit, Shield, Cpu, Activity, Sparkles, Terminal } from "lucide-react";
+import { FolderGit2, LogOut, Sparkles, Terminal } from "lucide-react";
 
-export function Navbar({ activeTab, setActiveTab, projects, currentProject, setCurrentProject }) {
+export function Navbar({ activeTab, setActiveTab, user, onLogout, onBackToLogin }) {
   const navItems = [
-    { id: "overview", label: "Overview", icon: Activity },
-    { id: "decisions", label: "Decisions", icon: Shield },
-    { id: "timeline", label: "Timeline", icon: GitCommit },
-    { id: "provenance", label: "Provenance Inspector", icon: Database },
+    ...(user ? [{ id: "projects", label: "Projects", icon: FolderGit2 }] : []),
     { id: "nlp", label: "NLP Studio", icon: Sparkles },
   ];
 
   return (
-    <header style={{
-      borderBottom: "1px solid var(--border-subtle)",
-      background: "var(--bg-surface)",
-      padding: "0 24px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      height: "56px",
-      position: "sticky",
-      top: 0,
-      zIndex: 100,
-    }}>
-      {/* Brand & Project Selector */}
+    <header
+      style={{
+        borderBottom: "1px solid var(--border-subtle)",
+        background: "var(--bg-surface)",
+        padding: "0 24px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        height: "56px",
+        position: "sticky",
+        top: 0,
+        zIndex: 100,
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "16px", letterSpacing: "-0.02em" }}>
-          <div style={{ background: "var(--color-primary)", padding: "4px 6px", borderRadius: "4px", display: "flex", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div
+            style={{
+              background: "var(--color-primary)",
+              padding: "4px 6px",
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
             <Terminal size={16} color="#fff" />
           </div>
-          <span>DevTrace</span>
-          <span style={{ fontSize: "11px", fontWeight: 500, color: "var(--text-muted)", marginLeft: "4px" }}>DBMS Lab</span>
+          <span style={{ fontWeight: 700, fontSize: "16px", letterSpacing: "-0.02em" }}>
+            DevTrace
+          </span>
         </div>
 
-        <div style={{ height: "20px", width: "1px", background: "var(--border-subtle)" }} />
+        <nav style={{ display: "flex", gap: "4px" }}>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "6px 14px",
+                  borderRadius: "4px",
+                  border: "none",
+                  background: isActive ? "var(--bg-surface-elevated)" : "transparent",
+                  color: isActive ? "var(--text-main)" : "var(--text-secondary)",
+                  fontWeight: isActive ? 600 : 500,
+                  fontSize: "13px",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon size={14} color={isActive ? "var(--color-primary)" : "var(--text-muted)"} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
-        {/* Project Selector */}
-        <select
-          value={currentProject?.project_id || ""}
-          onChange={(e) => {
-            const p = projects.find(proj => proj.project_id === e.target.value);
-            if (p) setCurrentProject(p);
-          }}
+      {user ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {user.avatar_url && (
+            <img
+              src={user.avatar_url}
+              alt={user.name}
+              style={{ width: "26px", height: "26px", borderRadius: "50%" }}
+            />
+          )}
+          <div style={{ fontSize: "12px", textAlign: "right" }}>
+            <div style={{ fontWeight: 600, color: "var(--text-main)" }}>{user.name}</div>
+            {user.github_username && (
+              <div className="font-mono" style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                @{user.github_username}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "5px 10px",
+              borderRadius: "4px",
+              border: "1px solid var(--border-subtle)",
+              background: "transparent",
+              color: "var(--text-secondary)",
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            <LogOut size={13} />
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onBackToLogin}
           style={{
-            background: "var(--bg-app)",
-            color: "var(--text-main)",
-            border: "1px solid var(--border-subtle)",
+            padding: "5px 12px",
             borderRadius: "4px",
-            padding: "4px 10px",
+            border: "1px solid var(--border-strong)",
+            background: "var(--bg-surface-elevated)",
+            color: "var(--text-main)",
             fontSize: "12px",
-            fontWeight: 500,
             cursor: "pointer",
           }}
         >
-          {projects.map(p => (
-            <option key={p.project_id} value={p.project_id}>
-              {p.project_name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Navigation Tabs */}
-      <nav style={{ display: "flex", gap: "4px" }}>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "6px 14px",
-                borderRadius: "4px",
-                border: "none",
-                background: isActive ? "var(--bg-surface-elevated)" : "transparent",
-                color: isActive ? "var(--text-main)" : "var(--text-secondary)",
-                fontWeight: isActive ? 600 : 500,
-                fontSize: "13px",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <Icon size={14} color={isActive ? "var(--color-primary)" : "var(--text-muted)"} />
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* Status indicator */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: "var(--text-muted)" }}>
-        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
-        <span className="font-mono">PostgreSQL 16 · Online</span>
-      </div>
+          Sign in
+        </button>
+      )}
     </header>
   );
 }
