@@ -50,8 +50,52 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String(30), nullable=False, default="developer")
+    avatar_url: Mapped[str | None] = mapped_column(String(1000))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OAuthAccount(Base):
+    __tablename__ = "oauth_account"
+
+    oauth_account_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("app_user.user_id", ondelete="RESTRICT"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    provider_username: Mapped[str | None] = mapped_column(String(255))
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    scopes: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "provider IN ('github', 'google')",
+            name="ck_oauth_provider",
+        ),
+        UniqueConstraint(
+            "provider",
+            "provider_user_id",
+            name="uq_oauth_provider_user",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "provider",
+            name="uq_oauth_user_provider",
+        ),
     )
 
 

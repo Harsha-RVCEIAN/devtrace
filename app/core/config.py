@@ -149,6 +149,41 @@ class Settings(BaseSettings):
         validation_alias="NLP_LLM_TIMEOUT_SECONDS",
     )
 
+    # Authentication & OAuth settings
+    auth_secret_key: SecretStr = Field(
+        default=SecretStr("dev-only-insecure-secret-change-me"),
+        validation_alias="AUTH_SECRET_KEY",
+    )
+    session_cookie_name: str = Field(
+        default="devtrace_session",
+        validation_alias="SESSION_COOKIE_NAME",
+    )
+    session_max_age_seconds: int = Field(
+        default=60 * 60 * 24 * 7,
+        ge=60,
+        validation_alias="SESSION_MAX_AGE_SECONDS",
+    )
+    frontend_url: str = Field(
+        default="http://localhost:5173",
+        validation_alias="FRONTEND_URL",
+    )
+    github_client_id: str = Field(
+        default="",
+        validation_alias="GITHUB_CLIENT_ID",
+    )
+    github_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="GITHUB_CLIENT_SECRET",
+    )
+    google_client_id: str = Field(
+        default="",
+        validation_alias="GOOGLE_CLIENT_ID",
+    )
+    google_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias="GOOGLE_CLIENT_SECRET",
+    )
+
     # Configure how Pydantic Settings reads configuration:
     # - env_file: load values from the absolute .env path defined above.
     # - env_file_encoding: read the file as UTF-8.
