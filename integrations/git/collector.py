@@ -13,7 +13,7 @@ Usage:
     python -m integrations.git.collector \\
         --project-id <UUID> \\
         --user-id <UUID> \\
-        --api-url http://localhost:8000/commits
+        --api-url http://localhost:8001/commits
 """
 
 import argparse
@@ -105,7 +105,7 @@ def send_commit_to_api(
     payload: dict[str, Any],
     project_id: UUID,
     user_id: UUID,
-    api_url: str = "http://localhost:8000/commits",
+    api_url: str = "http://localhost:8001/commits",
     timeout: float = 10.0,
 ) -> dict[str, Any]:
     """
@@ -168,7 +168,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--api-url",
-        default="http://localhost:8000/commits",
+        default="http://localhost:8001/commits",
         help="URL of the DevTrace API commits endpoint.",
     )
     parser.add_argument(
