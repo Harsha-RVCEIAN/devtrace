@@ -31,12 +31,23 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.dependencies import CurrentUser, DatabaseSession
 from app.models.entities import AIInteraction, ProjectMember
+from app.schemas.ingestion import (
+    BatchIngestTranscriptRequest,
+    BatchIngestTranscriptResponse,
+    IngestTranscriptRequest,
+    IngestTranscriptResponse,
+)
 from app.schemas.interaction import (
     InteractionCreate,
     InteractionResponse,
 )
 from app.schemas.nlp import ExtractionResponse
+from app.services.interaction_ingestion_service import (
+    ingest_and_stage_transcript,
+    ingest_transcript_batch,
+)
 from app.services.interaction_service import create_interaction
+from nlp.llm_engine import LLMUnavailable
 from nlp.pipeline import extract_decisions
 
 
@@ -164,4 +175,93 @@ def extract_candidates_from_interaction(
         interaction_id=interaction.interaction_id,
     )
     return ExtractionResponse.model_validate(result)
+
+
+class ProjectTranscriptIngestRequest(IngestTranscriptRequest):
+    project_id: UUID
+
+
+@router.post(
+    "/ingest",
+    response_model=IngestTranscriptResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload/parse an AI chat transcript, run NLP extraction, stage proposed decisions, and auto-link changes",
+)
+def ingest_transcript_endpoint(
+    payload: ProjectTranscriptIngestRequest,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+) -> IngestTranscriptResponse:
+    membership = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == payload.project_id,
+            ProjectMember.user_id == current_user.user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        )
+
+    try:
+        res = ingest_and_stage_transcript(
+            db,
+            project_id=payload.project_id,
+            user_id=current_user.user_id,
+            payload=payload,
+        )
+        return IngestTranscriptResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Local LLM service is unavailable: {exc}",
+        ) from exc
+
+
+@router.post(
+    "/ingest-batch",
+    response_model=BatchIngestTranscriptResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Batch upload/ingest multiple AI chat conversations, extract decisions, and auto-link code changes",
+)
+def ingest_transcript_batch_endpoint(
+    payload: BatchIngestTranscriptRequest,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+) -> BatchIngestTranscriptResponse:
+    membership = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == payload.project_id,
+            ProjectMember.user_id == current_user.user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        )
+
+    try:
+        res = ingest_transcript_batch(
+            db,
+            user_id=current_user.user_id,
+            payload=payload,
+        )
+        return BatchIngestTranscriptResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except LLMUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Local LLM service is unavailable: {exc}",
+        ) from exc
 

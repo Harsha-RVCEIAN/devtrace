@@ -70,6 +70,14 @@ PATTERNS: list[StatementPattern] = [
         kind="commit",
     ),
     StatementPattern(
+        name="drop_and_use",
+        pattern=re.compile(
+            r"\b(?:drop|ditch|skip|avoid|remove)\s+(?P<rejected>[A-Za-z0-9_\-\.\s]+?)\s+and\s+(?:use|switch to|go with|adopt)\s+(?P<choice>[A-Za-z0-9_\-\.\s]{2,40})",
+            re.IGNORECASE,
+        ),
+        kind="commit",
+    ),
+    StatementPattern(
         name="migrate_switch_from",
         pattern=re.compile(r"\b(?:migrate|switch)\s+(?:from\s+(?P<rejected>[A-Za-z0-9_\-\.\s]+?)\s+)?to\s+(?P<choice>[A-Za-z0-9_\-\.\s]+)", re.IGNORECASE),
         kind="commit",
