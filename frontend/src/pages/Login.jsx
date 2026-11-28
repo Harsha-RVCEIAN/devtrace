@@ -18,7 +18,7 @@ function GoogleIcon() {
   );
 }
 
-export function Login({ onAuthSuccess, onOpenNlpOffline }) {
+export function Login({ onAuthSuccess }) {
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [name, setName] = useState("");
@@ -267,24 +267,6 @@ export function Login({ onAuthSuccess, onOpenNlpOffline }) {
           </form>
         )}
       </div>
-
-      {onOpenNlpOffline && (
-        <button
-          type="button"
-          onClick={onOpenNlpOffline}
-          style={{
-            marginTop: "18px",
-            background: "transparent",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: "12px",
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
-        >
-          Test NLP Studio without signing in
-        </button>
-      )}
     </div>
   );
 }

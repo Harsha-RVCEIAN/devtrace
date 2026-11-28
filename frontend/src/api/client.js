@@ -149,3 +149,17 @@ export async function fetchTimeline(projectId, { limit = 100 } = {}) {
 export async function fetchDecisions(projectId) {
   return apiFetch(`/projects/${projectId}/decisions`);
 }
+
+export async function ingestTranscript(payload) {
+  return apiFetch("/interactions/ingest", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function ingestTranscriptBatch(payload) {
+  return apiFetch("/interactions/ingest-batch", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

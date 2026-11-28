@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Upload } from "lucide-react";
 
 export function WorkspaceHeader({
   project,
@@ -8,17 +8,15 @@ export function WorkspaceHeader({
   syncStatus,
   syncMsg,
   onSync,
+  onOpenImportChats,
   onBack,
   metrics,
   activeTab,
   setActiveTab,
-  proposedCount,
 }) {
   const TABS = [
-    { id: "overview", label: "Overview" },
-    { id: "provenance", label: "Provenance Inspector" },
-    { id: "graph", label: "Decision Graph & Timeline" },
-    { id: "review", label: `Review Queue${proposedCount > 0 ? ` (${proposedCount})` : ""}` },
+    { id: "graph", label: "Architecture & Decision Graph" },
+    { id: "timeline", label: "Timeline & Commits" },
   ];
 
   return (
@@ -29,7 +27,6 @@ export function WorkspaceHeader({
         padding: "0 24px",
       }}
     >
-      {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0 10px", flexWrap: "wrap" }}>
         <button
           type="button"
@@ -48,35 +45,27 @@ export function WorkspaceHeader({
           }}
         >
           <ArrowLeft size={14} />
-          Back to Projects
+          Projects
         </button>
 
         <div style={{ flex: 1, minWidth: "180px" }}>
           <div style={{ fontSize: "17px", fontWeight: 700 }}>{project.project_name}</div>
-          {project.repository_url ? (
-            <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace", wordBreak: "break-all" }}>
+          {project.repository_url && (
+            <div className="font-mono" style={{ fontSize: "11px", color: "var(--text-muted)", wordBreak: "break-all" }}>
               {project.repository_url}
             </div>
-          ) : (
-            <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>No repository URL configured</div>
           )}
         </div>
 
-        {/* Sync status & retry */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          {!project.repository_url && (
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-              Sync unavailable (no repository URL)
-            </span>
-          )}
           {project.repository_url && !hasGitHub && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#f59e0b" }}>
               <AlertTriangle size={13} />
-              Sync unavailable (GitHub not linked)
+              GitHub not linked
             </span>
           )}
           {syncStatus === "syncing" && (
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Syncing latest commits…</span>
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Syncing commits…</span>
           )}
           {syncStatus === "done" && syncMsg && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#10b981" }}>
@@ -85,8 +74,30 @@ export function WorkspaceHeader({
             </span>
           )}
           {syncStatus === "error" && syncMsg && (
-            <span style={{ fontSize: "12px", color: "#f87171" }}>Sync failed: {syncMsg}</span>
+            <span style={{ fontSize: "12px", color: "#f87171" }}>{syncMsg}</span>
           )}
+
+          <button
+            type="button"
+            onClick={onOpenImportChats}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 12px",
+              borderRadius: "5px",
+              border: "none",
+              background: "var(--color-primary)",
+              color: "#fff",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <Upload size={13} />
+            Import AI Chats
+          </button>
+
           {canSync && (
             <button
               type="button"
@@ -96,26 +107,24 @@ export function WorkspaceHeader({
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "5px",
-                padding: "5px 12px",
-                borderRadius: "4px",
-                border: "none",
-                background: "var(--color-primary)",
-                color: "#fff",
+                padding: "6px 12px",
+                borderRadius: "5px",
+                border: "1px solid var(--border-strong)",
+                background: "var(--bg-surface-elevated)",
+                color: "var(--text-main)",
                 fontSize: "12px",
                 fontWeight: 600,
                 cursor: syncStatus === "syncing" ? "not-allowed" : "pointer",
-                opacity: syncStatus === "syncing" ? 0.7 : 1,
               }}
             >
               <RefreshCw size={12} />
-              {syncStatus === "error" ? "Retry Sync" : "Sync"}
+              Sync
             </button>
           )}
         </div>
       </div>
 
-      {/* 5 required metrics */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "0 0 12px", alignItems: "center" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", paddingBottom: "10px", alignItems: "center" }}>
         {metrics.map((m) => (
           <span
             key={m.label}
@@ -132,7 +141,6 @@ export function WorkspaceHeader({
         ))}
       </div>
 
-      {/* Tabs */}
       <nav aria-label="Workspace sections" style={{ display: "flex", gap: "0", overflowX: "auto" }}>
         {TABS.map((tab) => (
           <button

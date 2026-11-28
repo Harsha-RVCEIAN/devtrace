@@ -1,12 +1,7 @@
 import React from "react";
-import { FolderGit2, LogOut, Sparkles, Terminal } from "lucide-react";
+import { FolderGit2, LogOut, Terminal } from "lucide-react";
 
-export function Navbar({ activeTab, setActiveTab, user, onLogout, onBackToLogin }) {
-  const navItems = [
-    ...(user ? [{ id: "projects", label: "Projects", icon: FolderGit2 }] : []),
-    { id: "nlp", label: "NLP Studio", icon: Sparkles },
-  ];
-
+export function Navbar({ user, onLogout }) {
   return (
     <header
       style={{
@@ -40,37 +35,25 @@ export function Navbar({ activeTab, setActiveTab, user, onLogout, onBackToLogin 
           </span>
         </div>
 
-        <nav style={{ display: "flex", gap: "4px" }}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  padding: "6px 14px",
-                  borderRadius: "4px",
-                  border: "none",
-                  background: isActive ? "var(--bg-surface-elevated)" : "transparent",
-                  color: isActive ? "var(--text-main)" : "var(--text-secondary)",
-                  fontWeight: isActive ? 600 : 500,
-                  fontSize: "13px",
-                  cursor: "pointer",
-                }}
-              >
-                <Icon size={14} color={isActive ? "var(--color-primary)" : "var(--text-muted)"} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "7px",
+            padding: "5px 12px",
+            borderRadius: "4px",
+            background: "var(--bg-surface-elevated)",
+            color: "var(--text-main)",
+            fontWeight: 600,
+            fontSize: "13px",
+          }}
+        >
+          <FolderGit2 size={14} color="var(--color-primary)" />
+          Projects
+        </div>
       </div>
 
-      {user ? (
+      {user && (
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {user.avatar_url && (
             <img
@@ -107,22 +90,6 @@ export function Navbar({ activeTab, setActiveTab, user, onLogout, onBackToLogin 
             Sign out
           </button>
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={onBackToLogin}
-          style={{
-            padding: "5px 12px",
-            borderRadius: "4px",
-            border: "1px solid var(--border-strong)",
-            background: "var(--bg-surface-elevated)",
-            color: "var(--text-main)",
-            fontSize: "12px",
-            cursor: "pointer",
-          }}
-        >
-          Sign in
-        </button>
       )}
     </header>
   );

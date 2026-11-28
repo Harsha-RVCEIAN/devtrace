@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { Navbar } from "./components/Navbar";
-import { CandidateStudio } from "./pages/CandidateStudio";
 import { Login } from "./pages/Login";
 import { Projects } from "./pages/Projects";
 import { ProjectWorkspace } from "./pages/ProjectWorkspace";
@@ -9,8 +8,6 @@ import { fetchCurrentUser, logout } from "./api/client";
 export default function App() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [activeTab, setActiveTab] = useState("projects");
-  const [offlineNlpMode, setOfflineNlpMode] = useState(false);
   const [workspaceProject, setWorkspaceProject] = useState(null);
 
   useEffect(() => {
@@ -18,7 +15,6 @@ export default function App() {
       try {
         const me = await fetchCurrentUser();
         setUser(me);
-        if (me) setActiveTab("projects");
       } catch {
         setUser(null);
       } finally {
@@ -29,17 +25,8 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
-    await logout().catch(() => { });
+    await logout().catch(() => {});
     setUser(null);
-    setOfflineNlpMode(false);
-    setWorkspaceProject(null);
-  };
-
-  const openWorkspace = (project) => {
-    setWorkspaceProject(project);
-  };
-
-  const closeWorkspace = () => {
     setWorkspaceProject(null);
   };
 
@@ -51,46 +38,25 @@ export default function App() {
     );
   }
 
-  if (!user && !offlineNlpMode) {
-    return (
-      <Login
-        onAuthSuccess={(loggedInUser) => {
-          setUser(loggedInUser);
-          setActiveTab("projects");
-        }}
-        onOpenNlpOffline={() => {
-          setOfflineNlpMode(true);
-          setActiveTab("nlp");
-        }}
-      />
-    );
+  if (!user) {
+    return <Login onAuthSuccess={(loggedInUser) => setUser(loggedInUser)} />;
   }
 
-  // Workspace view replaces everything when a project is open
-  if (workspaceProject && user) {
+  if (workspaceProject) {
     return (
       <ProjectWorkspace
         project={workspaceProject}
         currentUser={user}
-        onBack={closeWorkspace}
+        onBack={() => setWorkspaceProject(null)}
       />
     );
   }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        user={user}
-        onLogout={handleLogout}
-        onBackToLogin={() => setOfflineNlpMode(false)}
-      />
+      <Navbar user={user} onLogout={handleLogout} />
       <main style={{ flex: 1 }}>
-        {activeTab === "projects" && user && (
-          <Projects user={user} onOpenWorkspace={openWorkspace} />
-        )}
-        {activeTab === "nlp" && <CandidateStudio />}
+        <Projects user={user} onOpenWorkspace={(p) => setWorkspaceProject(p)} />
       </main>
     </div>
   );
