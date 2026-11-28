@@ -1,6 +1,5 @@
 import React from "react";
-import { ArrowLeft, RefreshCw, AlertTriangle } from "lucide-react";
-import { fmtDateTime } from "./shared";
+import { ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export function WorkspaceHeader({
   project,
@@ -8,7 +7,6 @@ export function WorkspaceHeader({
   canSync,
   syncStatus,
   syncMsg,
-  lastSyncTime,
   onSync,
   onBack,
   metrics,
@@ -66,25 +64,28 @@ export function WorkspaceHeader({
 
         {/* Sync status & retry */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          {!hasGitHub && project.repository_url && (
+          {!project.repository_url && (
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+              Sync unavailable (no repository URL)
+            </span>
+          )}
+          {project.repository_url && !hasGitHub && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#f59e0b" }}>
               <AlertTriangle size={13} />
-              GitHub not linked
+              Sync unavailable (GitHub not linked)
             </span>
           )}
           {syncStatus === "syncing" && (
             <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Syncing latest commits…</span>
           )}
           {syncStatus === "done" && syncMsg && (
-            <span style={{ fontSize: "12px", color: "#10b981" }}>{syncMsg}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#10b981" }}>
+              <CheckCircle2 size={13} />
+              {syncMsg}
+            </span>
           )}
           {syncStatus === "error" && syncMsg && (
-            <span style={{ fontSize: "12px", color: "#f87171" }}>{syncMsg}</span>
-          )}
-          {lastSyncTime && (
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-              Last synced: {fmtDateTime(lastSyncTime)}
-            </span>
+            <span style={{ fontSize: "12px", color: "#f87171" }}>Sync failed: {syncMsg}</span>
           )}
           {canSync && (
             <button

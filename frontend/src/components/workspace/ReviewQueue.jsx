@@ -14,6 +14,7 @@ export function ReviewQueue({
   const [msgs, setMsgs] = useState({});
 
   const handleAction = async (decision, newStatus) => {
+    if (decision.status !== "proposed" || busy[decision.decision_id]) return;
     setBusy((p) => ({ ...p, [decision.decision_id]: newStatus }));
     setMsgs((p) => ({ ...p, [decision.decision_id]: null }));
     try {

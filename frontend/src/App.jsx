@@ -77,16 +77,6 @@ export default function App() {
     );
   }
 
-  if (workspaceProject && user) {
-    return (
-      <ProjectWorkspace
-        project={workspaceProject}
-        currentUser={user}
-        onBack={closeWorkspace}
-      />
-    );
-  }
-
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Navbar

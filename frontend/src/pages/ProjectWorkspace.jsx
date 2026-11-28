@@ -2,7 +2,7 @@
  * frontend/src/pages/ProjectWorkspace.jsx
  *
  * Live Project Workspace — opens when a user selects a project.
- * Coordinates GitHub auto-sync, parallel data loading, and workspace tabs.
+ * Coordinates GitHub auto-sync, full paginated data loading, and workspace tabs.
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -20,13 +20,59 @@ import { ReviewQueue } from "../components/workspace/ReviewQueue";
 import { ProjectTimeline } from "../components/workspace/ProjectTimeline";
 import { fmtDate } from "../components/workspace/shared";
 
+const PAGE_SIZE = 100;
+const MAX_PAGES = 100;
+
+/**
+ * Fetch all pages from a limit/offset endpoint, deduplicating by `idKey`.
+ * If a subsequent page fails, preserves already-loaded items and returns `partialError`.
+ */
+async function fetchAllPages(fetchPageFn, idKey, isCancelled) {
+  const seen = new Set();
+  const items = [];
+  let offset = 0;
+
+  for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
+    if (isCancelled()) return { items, partialError: null };
+
+    let page;
+    try {
+      page = await fetchPageFn({ limit: PAGE_SIZE, offset });
+    } catch (err) {
+      if (items.length === 0) throw err;
+      return {
+        items,
+        partialError: err.message || "Failed to load remaining pages; showing partial results.",
+      };
+    }
+
+    if (isCancelled()) return { items, partialError: null };
+    if (!Array.isArray(page) || page.length === 0) break;
+
+    let added = 0;
+    for (const row of page) {
+      const key = row?.[idKey];
+      if (key != null && !seen.has(key)) {
+        seen.add(key);
+        items.push(row);
+        added += 1;
+      }
+    }
+
+    if (page.length < PAGE_SIZE || added === 0) break;
+    offset += PAGE_SIZE;
+  }
+
+  return { items, partialError: null };
+}
+
 function OverviewSection({
   project,
   metrics,
   timeline,
   timelineLoading,
   timelineError,
-  loadedLimitHit,
+  partialWarning,
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -57,9 +103,20 @@ function OverviewSection({
             </div>
           ))}
         </div>
-        {loadedLimitHit && (
-          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "6px" }}>
-            Metrics reflect the latest 100 loaded records.
+        {partialWarning && (
+          <div
+            role="alert"
+            style={{
+              marginTop: "8px",
+              padding: "8px 12px",
+              borderRadius: "6px",
+              background: "rgba(245,158,11,0.08)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              color: "#f59e0b",
+              fontSize: "12px",
+            }}
+          >
+            Incomplete dataset: {partialWarning}
           </div>
         )}
       </div>
@@ -137,10 +194,12 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
   const [commits, setCommits] = useState([]);
   const [commitsLoading, setCommitsLoading] = useState(true);
   const [commitsError, setCommitsError] = useState(null);
+  const [commitsPartialError, setCommitsPartialError] = useState(null);
 
   const [codeChanges, setCodeChanges] = useState([]);
   const [changesLoading, setChangesLoading] = useState(true);
   const [changesError, setChangesError] = useState(null);
+  const [changesPartialError, setChangesPartialError] = useState(null);
 
   const [decisions, setDecisions] = useState([]);
   const [decisionsLoading, setDecisionsLoading] = useState(true);
@@ -152,7 +211,6 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
 
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncMsg, setSyncMsg] = useState(null);
-  const [lastSyncTime, setLastSyncTime] = useState(null);
 
   // Prevent duplicate auto-sync calls in React StrictMode
   const syncedProjectRef = useRef(null);
@@ -160,25 +218,36 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
   const hasGitHub = Boolean(currentUser?.linked_providers?.includes("github"));
   const canSync = hasGitHub && Boolean(project?.repository_url);
 
-  // Load persisted project data independently
+  // Load persisted project data independently with full pagination
   useEffect(() => {
     if (!project?.project_id) return;
     const projectId = project.project_id;
     let cancelled = false;
+    const isCancelled = () => cancelled;
 
     async function loadAll() {
       setCommitsLoading(true);
       setCommitsError(null);
+      setCommitsPartialError(null);
       setChangesLoading(true);
       setChangesError(null);
+      setChangesPartialError(null);
       setDecisionsLoading(true);
       setDecisionsError(null);
       setTimelineLoading(true);
       setTimelineError(null);
 
       const [commitsRes, changesRes, decisionsRes, timelineRes] = await Promise.allSettled([
-        fetchCommits(projectId, { limit: 100 }),
-        fetchCodeChanges(projectId, { limit: 100 }),
+        fetchAllPages(
+          ({ limit, offset }) => fetchCommits(projectId, { limit, offset }),
+          "commit_id",
+          isCancelled
+        ),
+        fetchAllPages(
+          ({ limit, offset }) => fetchCodeChanges(projectId, { limit, offset }),
+          "change_id",
+          isCancelled
+        ),
         fetchDecisions(projectId),
         fetchTimeline(projectId, { limit: 100 }),
       ]);
@@ -186,14 +255,16 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
       if (cancelled) return;
 
       if (commitsRes.status === "fulfilled") {
-        setCommits(commitsRes.value);
+        setCommits(commitsRes.value.items);
+        setCommitsPartialError(commitsRes.value.partialError);
       } else {
         setCommitsError(commitsRes.reason?.message || "Failed to load commits.");
       }
       setCommitsLoading(false);
 
       if (changesRes.status === "fulfilled") {
-        setCodeChanges(changesRes.value);
+        setCodeChanges(changesRes.value.items);
+        setChangesPartialError(changesRes.value.partialError);
       } else {
         setChangesError(changesRes.reason?.message || "Failed to load code changes.");
       }
@@ -227,6 +298,7 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
     syncedProjectRef.current = project.project_id;
 
     let cancelled = false;
+    const isCancelled = () => cancelled;
     setSyncStatus("syncing");
     setSyncMsg(null);
 
@@ -234,17 +306,32 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
       .then((res) => {
         if (cancelled) return;
         setSyncStatus("done");
-        setLastSyncTime(new Date().toISOString());
-        setSyncMsg(`Synced ${res.synced_commits} new commit(s), ${res.total_changes} file change(s).`);
+        setSyncMsg(
+          `Synced ${res.synced_commits} new (${res.skipped_commits} skipped), ${res.total_changes} file change(s)`
+        );
 
         Promise.allSettled([
-          fetchCommits(project.project_id, { limit: 100 }),
-          fetchCodeChanges(project.project_id, { limit: 100 }),
+          fetchAllPages(
+            ({ limit, offset }) => fetchCommits(project.project_id, { limit, offset }),
+            "commit_id",
+            isCancelled
+          ),
+          fetchAllPages(
+            ({ limit, offset }) => fetchCodeChanges(project.project_id, { limit, offset }),
+            "change_id",
+            isCancelled
+          ),
           fetchTimeline(project.project_id, { limit: 100 }),
         ]).then(([c, ch, tl]) => {
           if (cancelled) return;
-          if (c.status === "fulfilled") setCommits(c.value);
-          if (ch.status === "fulfilled") setCodeChanges(ch.value);
+          if (c.status === "fulfilled") {
+            setCommits(c.value.items);
+            setCommitsPartialError(c.value.partialError);
+          }
+          if (ch.status === "fulfilled") {
+            setCodeChanges(ch.value.items);
+            setChangesPartialError(ch.value.partialError);
+          }
           if (tl.status === "fulfilled") setTimeline(tl.value);
         });
       })
@@ -266,15 +353,30 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
     try {
       const res = await syncGitHubProject(project.project_id, 20);
       setSyncStatus("done");
-      setLastSyncTime(new Date().toISOString());
-      setSyncMsg(`Synced ${res.synced_commits} new commit(s), ${res.total_changes} file change(s).`);
+      setSyncMsg(
+        `Synced ${res.synced_commits} new (${res.skipped_commits} skipped), ${res.total_changes} file change(s)`
+      );
       const [c, ch, tl] = await Promise.allSettled([
-        fetchCommits(project.project_id, { limit: 100 }),
-        fetchCodeChanges(project.project_id, { limit: 100 }),
+        fetchAllPages(
+          ({ limit, offset }) => fetchCommits(project.project_id, { limit, offset }),
+          "commit_id",
+          () => false
+        ),
+        fetchAllPages(
+          ({ limit, offset }) => fetchCodeChanges(project.project_id, { limit, offset }),
+          "change_id",
+          () => false
+        ),
         fetchTimeline(project.project_id, { limit: 100 }),
       ]);
-      if (c.status === "fulfilled") setCommits(c.value);
-      if (ch.status === "fulfilled") setCodeChanges(ch.value);
+      if (c.status === "fulfilled") {
+        setCommits(c.value.items);
+        setCommitsPartialError(c.value.partialError);
+      }
+      if (ch.status === "fulfilled") {
+        setCodeChanges(ch.value.items);
+        setChangesPartialError(ch.value.partialError);
+      }
       if (tl.status === "fulfilled") setTimeline(tl.value);
     } catch (err) {
       setSyncStatus("error");
@@ -318,14 +420,15 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
     );
   }
 
-  // Exact 5 required metrics calculated from actual API data
+  // Exact 5 required metrics calculated from loaded API data
   const aiAttributed = codeChanges.filter(
     (c) => c.origin === "ai_exact" || c.origin === "ai_inferred"
   ).length;
   const humanAttributed = codeChanges.filter((c) => c.origin === "human").length;
   const unlinked = codeChanges.filter((c) => !c.decision && !c.interaction).length;
   const proposedCount = decisions.filter((d) => d.status === "proposed").length;
-  const loadedLimitHit = commits.length >= 100 || codeChanges.length >= 100;
+
+  const partialWarning = [commitsPartialError, changesPartialError].filter(Boolean).join(" | ") || null;
 
   const metrics = [
     { label: "Total Commits", value: commits.length },
@@ -343,7 +446,6 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
         canSync={canSync}
         syncStatus={syncStatus}
         syncMsg={syncMsg}
-        lastSyncTime={lastSyncTime}
         onSync={handleManualSync}
         onBack={onBack}
         metrics={metrics}
@@ -360,7 +462,7 @@ export function ProjectWorkspace({ project, currentUser, onBack }) {
             timeline={timeline}
             timelineLoading={timelineLoading}
             timelineError={timelineError}
-            loadedLimitHit={loadedLimitHit}
+            partialWarning={partialWarning}
           />
         )}
         {activeTab === "provenance" && (
